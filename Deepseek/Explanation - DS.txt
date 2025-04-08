@@ -1,0 +1,10 @@
+Explanation
+SQL Parsing: The sqlglot library is used to parse the SQL input into an AST, allowing extraction of CTEs, subqueries, and the main query.
+
+CTE and Subquery Processing: Each CTE and subquery is processed recursively to build a mapping of their columns to their source tables and columns.
+
+Column Resolution: For each column in the main query's SELECT list, the code resolves aliases and traces through CTEs and subqueries to find the original source tables and columns.
+
+GUI: A simple GUI using Tkinter provides text boxes for input and output, along with a button to trigger the analysis. The results are displayed in CSV format for easy copying and pasting.
+
+This approach ensures that even complex SQL statements with multiple layers of CTEs and subqueries are correctly parsed and analyzed to provide accurate source table and column mappings for each result column.

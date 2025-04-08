@@ -1,0 +1,33 @@
+As Python expert, I want to develop a Python program to run on Windows. This program is a SQL statement parser and analyzer.
+- Purpose: to parse/analyze a complex SQL statement and generate its result/target columns and the source tables/columns of these result columns.
+- Input: a complex SQL statement
+  Sample Input:
+      WITH 
+	  TempA As (SELECT KeyA, NameA, DateA FROM TableA WHERE DateA='2025-01-01'),
+	  TempB As (SELECT KeyB, KeyA, RateB, DateB FROM TableA WHERE KeyA IN (SELECT KeyA FROM TempA))
+	 SELECT C.KeyC, C.QuantityC, C.DateC,
+	        A.NameA, B.RateB, B.RateB * C.QuantityC AS Amount
+	   FROM TableC C
+	   LEFT OUTER JOIN TempA A ON C.KeyA = A.KeyA
+	   LEFT OUTER JOIN 
+	        (SELECT KeyB, KeyA, RateB, DateB 
+			   FROM TableA 
+			   WHERE KeyA IN (SELECT KeyA FROM TempA)
+			) B ON B.KeyB = C.KeyB
+- Output: A mapping list contains result columns and all source tables/column names for these result columns
+  Sample Output from Sample Input:
+       RESULT COLUMN 	SOURCE TABLE 	SOURCE COLUMN
+	   KeyC,			TableC			KeyC
+	   QuantityC		TableC			QuantityC
+	   DateC			TableC			DateC
+	   NameA			TableA			NameA
+	   RateB			TableB			RateB
+	   Amount			TableB			RateB
+	   Amount			TableC			QuantityC
+	   
+- Key Consideration
+   1. for calculated or conditional result table, it can involve multiple source tables or source columns
+   2. there can be multiple passes of queries/subqueries involve in the complex SQL statement, only return the original/earlies source table or column, not the interm/temp table/column.
+   3. In the UI, need to have a multi-line text box for user to enter the SQL statement. The SQL statement can be very long with hundreds of lines
+   4. In the UI, need to have a button for the user to kick-off the parse/analyze.
+   5. In the UI, need to have another multiple-line text box to display the result list in the simple CSV format. Should allow user to copy the result list and paste to other application.

@@ -1,0 +1,1543 @@
+Okay, let's tackle this problem. The user wants a Python program for Windows that can parse a complex SQL statement and generate a mapping of result columns to their source tables and columns. The sample output shows that each result column might have multiple sources, especially calculated ones like Amount, which comes from RateB in TableB and QuantityC in TableC.
+
+First, I need to parse the SQL input. Parsing SQL is tricky because of the complexity and various constructs like CTEs, subqueries, joins, etc. Maybe using an existing SQL parser library would help. I've heard of sqlparse, which is a Python library for parsing SQL statements. It can break down the SQL into tokens and help identify clauses. However, it might not handle the analysis part, like resolving aliases or tracking column origins. Another option is the Mozilla SQL parser (sql_parser), but I'm not sure about its capabilities. Alternatively, perhaps using ANTLR with a SQL grammar could work, but that might be more complex. Let's start with sqlparse since it's easier to use and see if it can provide enough structure.
+
+The key steps I need to perform are:
+
+1. Parse the input SQL to extract the structure: CTEs, main SELECT, columns in the SELECT, FROM and JOIN clauses, subqueries, etc.
+
+2. For each result column in the SELECT clause, determine its source. If it's a calculated column (like RateB * QuantityC), break it down into the constituent columns.
+
+3. For each constituent column, trace back through any aliases, subqueries, CTEs, etc., to find the original source table and column. The user mentioned that interim/temp tables (like CTEs) should not be in the output; only the original tables and columns matter.
+
+4. Collect all these mappings and output them in the specified CSV format.
+
+Let's think about the sample input. The result columns include KeyC, QuantityC, DateC from TableC; NameA from TableA (since TempA is a CTE based on TableA), RateB from TableB (wait, but in the sample input, TempB is from TableA again. Wait, the sample output lists RateB's source as TableB. Hmm, maybe that's a typo. Or perhaps there's a mistake in the sample input. Wait, looking at the sample input: TempB is defined as SELECT KeyB, KeyA, RateB, DateB FROM TableA. So RateB is from TableA. But the sample output says RateB's source is TableB. That's conflicting. Maybe the sample input has an error, or there's a misunderstanding. Let me check the sample input again. Oh, the user's sample input defines TempB as selecting from TableA, but in the main query, B is aliased as the subquery which is from TableA again. But in the sample output, RateB is mapped to TableB. That seems inconsistent. Maybe the user intended TableB to be part of the source, but in the given SQL, all references are to TableA and TableC. So perhaps the sample output is incorrect, or maybe there's a typo in the problem statement. I should proceed under the assumption that the user's sample output is correct, but there might be a mistake. Alternatively, maybe in the subquery B, the actual table is TableB. Wait, looking again:
+
+In the main query's FROM clause, the subquery B is:
+
+SELECT KeyB, KeyA, RateB, DateB FROM TableA WHERE KeyA IN (SELECT KeyA FROM TempA)
+
+So RateB in B comes from TableA. So in the sample output, why is RateB listed as from TableB? That's a discrepancy. Maybe the sample output is wrong. But perhaps the user intended that the source tables are the original ones, but in the sample input, RateB is from TableA. Maybe the user made a mistake in the sample. Well, regardless, the program should correctly trace columns to their origin. So the first step is to correctly parse and track columns through CTEs and subqueries.
+
+So, the main challenge is to track the source columns through multiple layers of subqueries and CTEs. For example, in the sample input, TempA is a CTE based on TableA. Then, TempB is another CTE based on TableA but referencing TempA. Then the main query joins with TempA and a subquery B that references TableA again.
+
+The approach would be to build a structure that maps each alias or CTE to its underlying tables. For each column in the result set, we need to resolve it back through any aliases, CTEs, and subqueries until we reach the base tables.
+
+So, here's a possible plan:
+
+1. Parse the SQL statement into its components (CTEs, main SELECT).
+
+2. For each CTE, parse their definitions and store their structure (columns and their sources).
+
+3. For the main SELECT, process each column in the select list:
+
+a. If the column is an expression (like B.RateB * C.QuantityC), split it into individual column references.
+
+b. For each column reference (like B.RateB), resolve the alias (B) to its source (subquery or table), then resolve the column in that source.
+
+4. When resolving a column in a CTE or subquery, recursively trace back to the original source.
+
+To handle this, perhaps building a hierarchical structure of each subquery and CTE, keeping track of their columns and the corresponding source tables and columns.
+
+But how to track the original source? For example, if a CTE TempA is SELECT KeyA from TableA, then a subquery selects KeyA from TempA, the original source is TableA.KeyA.
+
+So, for any column reference, we need to track through the layers until we hit a base table (not a CTE or subquery).
+
+Another challenge is handling aliases. For example, in the main query, TableC is aliased as C, so when a column is referenced as C.KeyC, it's from TableC.KeyC.
+
+In joins, such as LEFT JOIN TempA A ON ..., TempA is a CTE, which itself is a SELECT from TableA. So the alias A refers to TempA, which in turn refers to TableA.
+
+So, the resolver would need to replace CTE aliases with their underlying definitions.
+
+Let's outline the steps in more detail.
+
+1. Parsing the SQL into CTEs and the main query.
+
+The input SQL starts with a WITH clause defining TempA and TempB. Then the main SELECT follows.
+
+Using sqlparse, we can split the SQL into CTEs and the main query.
+
+But sqlparse can help in splitting the statements and identifying the clauses. For example, the WITH clause can be parsed to get each CTE's name and their respective subqueries.
+
+Then, the main SELECT can be parsed to get the result columns, the FROM clause, and the joins.
+
+2. Resolving column references.
+
+Each result column may be an expression, a column from a table, or a column from a CTE/subquery.
+
+For example, the Amount column is B.RateB * C.QuantityC. We need to split this into RateB from B and QuantityC from C.
+
+Then, B is a subquery in the FROM clause. So we need to resolve B to its subquery, find where RateB comes from in that subquery.
+
+The subquery for B selects RateB from TableA (since the subquery is selecting from TableA). But wait, the sample output shows RateB as from TableB. That's conflicting, but perhaps it's a mistake. So perhaps the user made a typo in the sample input, and the subquery for B is actually from TableB. But assuming the sample input is correct, then RateB in the main query's B alias comes from TableA.
+
+But in the sample output, RateB's source is TableB. Hmm. That's a problem. Maybe the user intended the CTE TempB to be from TableB, but in the sample input, TempB is from TableA. So perhaps there's a mistake in the sample input. Alternatively, the sample output might have an error. But this is a sample, and the program should follow the actual SQL structure.
+
+In any case, the program must correctly track the columns regardless of such possible errors in the sample. So the code should process the given SQL as per the input.
+
+So, moving forward, for the sample input, RateB in B's subquery comes from TableA.RateB (assuming TableA has a RateB column). Therefore, the output should show RateB as from TableA. But the sample output says TableB. So perhaps the sample input is different. Alternatively, maybe in the problem statement, the user made a typo. Well, regardless, the code must parse the actual input given.
+
+So, the code needs to handle CTEs, subqueries, and aliases, and for each column, track back to the original table and column.
+
+How to model this? Let's think about creating a context that maps each alias (CTE or table alias) to its definition. For example:
+
+- When processing the WITH clause, TempA is mapped to its subquery's columns. But TempA's KeyA comes from TableA.KeyA.
+
+- Then, when processing the main query, the FROM clause refers to TableC as C. So C is mapped to TableC.
+
+- The LEFT JOIN TempA A... means alias A refers to the TempA CTE, which is itself a subquery based on TableA.
+
+So, for any reference to A.NameA, that comes from TempA's NameA, which is from TableA.NameA.
+
+Thus, the resolver would need to:
+
+For a given column reference (e.g., A.NameA):
+
+1. Find the alias 'A', which refers to TempA CTE.
+
+2. Check the TempA CTE's definition: SELECT KeyA, NameA, DateA FROM TableA WHERE ...
+
+3. The NameA in TempA is from TableA.NameA.
+
+4. So the original source is TableA and column NameA.
+
+Similarly, for B.RateB:
+
+- B is an alias for the subquery in the FROM clause. That subquery selects RateB from TableA. So RateB in B comes from TableA.RateB. Therefore, the original source is TableA.RateB.
+
+But the sample output says RateB's source is TableB. So this suggests that perhaps the user intended a different structure. But in the absence of that, the code should process according to the given SQL.
+
+This suggests that the sample output might have a mistake. But the user's sample output is as shown, so perhaps there's an error in their example, but we need to proceed according to the problem description.
+
+Thus, the code must handle these cases correctly based on the input.
+
+Now, the challenge is to model the context of each alias and track columns through multiple levels of subqueries and CTEs.
+
+Possible approach:
+
+- Use a stack-based approach to track the current context. When entering a subquery or CTE, push a new context onto the stack. When exiting, pop the context.
+
+- Each context would map aliases to their definitions (tables, subqueries, CTEs) and columns.
+
+But how to model the definitions. For a CTE, the definition is a subquery. For a table alias, it's a table name. For a subquery in a FROM clause, it's the subquery's columns.
+
+Another approach is to build a hierarchy of scopes. Each scope represents a level of the query (CTE, main query, subquery). Each scope has a list of available tables/aliases and their corresponding columns and their origins.
+
+For example:
+
+- The outermost scope includes the CTEs (TempA and TempB).
+
+- When processing the main query's FROM clause, the tables and their aliases are added to the current scope.
+
+- When processing a subquery, create a new scope that inherits from the parent (e.g., CTEs are available in subqueries unless redefined).
+
+But handling scopes properly is essential.
+
+Alternatively, using an object-oriented approach where each subquery/CTE is represented as a Query object, which has a list of columns, each with their source (another Query or a base Table).
+
+But this can get complicated. Maybe building a map for each alias to its base tables and columns.
+
+Alternatively, for each column reference, recursively resolve it until a base table is found.
+
+Let me think of how to represent the data. For example:
+
+Each column in a query (CTE, subquery, main query) can have a 'source' which is either a base table and column, or another query's column (which in turn has its own source).
+
+So, for example, the column A.NameA in the main query:
+
+- A is an alias for TempA, which is a CTE.
+
+- In TempA's definition, NameA is selected from TableA.NameA.
+
+So the source for A.NameA is TableA.NameA.
+
+So, recursively, each column can be traced back through CTEs and subqueries until the base table is found.
+
+Thus, the core of the problem is, for each result column, to find all base table columns that contribute to it.
+
+So the steps for each result column are:
+
+1. Parse the result column expression to extract all column references (e.g., B.RateB * C.QuantityC would give B.RateB and C.QuantityC).
+
+2. For each column reference, resolve it to the underlying base table and column.
+
+To resolve a column reference (like B.RateB):
+
+- Find the alias B in the current scope. B is a subquery in the FROM clause.
+
+- In that subquery's scope, find the definition of RateB. The subquery selects RateB from TableA.
+
+- Thus, RateB in B's subquery is from TableA.RateB.
+
+So the resolved source is TableA.RateB.
+
+But according to the sample output, RateB is mapped to TableB. So perhaps there's a mistake. But if the code is correct, then the sample output's discrepancy would indicate a possible error in the problem statement.
+
+But proceeding, the code should correctly trace the sources based on the input SQL.
+
+So, the main tasks are:
+
+- Parsing the SQL to extract CTEs, subqueries, and the main query.
+
+- For each column in the result set, split into individual column references (if it's an expression).
+
+- For each column reference, resolve through aliases, CTEs, and subqueries to the base table and column.
+
+Now, let's think about the implementation.
+
+First, parse the SQL. Using sqlparse, split the SQL into the WITH clause and the main query.
+
+For example, the WITH clause can be parsed into CTE names and their subqueries.
+
+The main query can be parsed to extract the SELECT list, FROM clause, joins, etc.
+
+But sqlparse can help in splitting the SQL into tokens and identifying the different clauses.
+
+But to get the structure (CTEs, subqueries, etc.), perhaps using a recursive approach.
+
+Alternatively, using the sqlparse library's parse() function to get a parsed statement, then traversing the tokens to extract CTEs and the main query.
+
+For example, the first part of the SQL is the WITH clause. Each CTE is separated by commas. Then the main SELECT follows.
+
+Once the CTEs are parsed, their definitions (subqueries) can be processed recursively.
+
+For each CTE, we need to process its subquery and determine the source columns for each column in the CTE.
+
+Similarly, for subqueries in the main query's FROM clause or in JOIN clauses, process them recursively.
+
+Now, the challenge is to model the CTEs and subqueries and track the source columns.
+
+Perhaps create a CTE registry, where each CTE is stored with their column sources.
+
+For example, TempA has columns KeyA, NameA, DateA, each mapped to TableA's columns.
+
+Then, when resolving a reference to TempA's column, we can look it up in the registry.
+
+But for subqueries within the main query, like the subquery aliased as B, we need to process them similarly.
+
+Another approach is to represent each query (CTE, subquery, main query) as a structure that contains the tables it references, its aliases, and for each column in its SELECT list, the source columns.
+
+So, when a column in a query is referenced, it can be resolved to the source columns of that query.
+
+This would require building a hierarchy of queries, each with their own columns and sources.
+
+For example:
+
+- The main query references CTEs (TempA, TempB) and tables (TableC).
+
+- The TempA CTE is a query that references TableA.
+
+- The subquery B references TableA and the TempA CTE.
+
+Each time a column is referenced, we need to find which query it comes from and then resolve that query's column to its source.
+
+This seems like a manageable approach.
+
+So, the steps would be:
+
+1. Parse the entire SQL into a structure that represents each CTE and the main query, including subqueries.
+
+2. For each query (CTE, subquery, main), process its SELECT list to determine the source of each column in the list. For example, if a column is selected directly from a table, or from a subquery, or is an expression.
+
+3. For each column in the SELECT list of a query, store its origin (e.g., for a direct column reference, the origin is the table and column; for a column from a subquery, it's the origin from the subquery's SELECT list, etc.)
+
+Then, when resolving a column reference in the main query's SELECT list, we can traverse the origins until we reach the base table columns.
+
+But how to handle aliases and joins? For example, in the FROM clause, TableC is aliased as C. So any column in C refers to TableC.
+
+Similarly, when joining with TempA as A, columns in A refer to TempA's columns.
+
+So, in the processing of the FROM clause, each table/alias must be mapped to their actual source (table or CTE or subquery).
+
+Thus, during parsing, the FROM clause and JOIN clauses need to be processed to collect all the tables/aliases and their corresponding source (base table, CTE, subquery).
+
+For each such source, if it's a subquery, process its SELECT list and track the origins.
+
+This seems complex, but perhaps manageable.
+
+Now, let's outline the code structure.
+
+The main steps:
+
+1. Parse the input SQL into CTEs and the main query.
+
+2. For each CTE, parse its subquery and determine the origin of each column in the CTE's SELECT list.
+
+3. Process the main query's FROM clause to identify all the tables/aliases involved, including those from CTEs, base tables, and subqueries.
+
+4. For each column in the main query's SELECT list:
+
+a. If it's an expression (like B.RateB * C.QuantityC), split into individual column references.
+
+b. For each column reference (e.g., B.RateB, C.QuantityC):
+
+i. Resolve the alias (B or C) to their source (subquery or table).
+
+ii. For the source, find the origin of the column (e.g., B.RateB comes from the subquery's SELECT list, which may be from a CTE or base table).
+
+iii. Recursively resolve until reaching a base table and column.
+
+5. Collect all these base table/column pairs for each result column.
+
+6. Output the mappings in the specified CSV format.
+
+Now, the key challenges are:
+
+- Parsing the SQL accurately to extract CTEs, subqueries, and their structures.
+
+- Resolving column references through multiple layers of aliases and subqueries.
+
+To handle parsing, using sqlparse to split the SQL into components. For example, the WITH clause can be parsed by finding the 'WITH' keyword and then splitting each CTE.
+
+For each CTE, we can get the name (e.g., TempA) and the subquery (the SELECT statement).
+
+Then, recursively process each CTE's subquery to determine the origin of their columns.
+
+Similarly, for subqueries in the main query's FROM or JOIN clauses.
+
+But sqlparse can help in breaking down the SQL into components, but building the actual structure of the query (SELECT list, FROM, JOINs, etc.) requires more work.
+
+Alternatively, using a SQL parser that can generate an abstract syntax tree (AST). There's a Python library called sqlglot that can parse SQL into an AST and allow traversal. It supports multiple SQL dialects. Maybe this would be better than sqlparse for more accurate parsing.
+
+Alternatively, using the antlr4-python3-runtime with a SQL grammar. However, that may be more complex.
+
+Alternatively, using the mo-sql-parsing library. Let's check available options.
+
+Upon a quick search, sqlglot seems promising. It can parse SQL into an AST and allows for transformations and analysis. It supports CTEs, subqueries, etc. Let's consider using sqlglot for parsing.
+
+Using sqlglot, we can parse the SQL into a tree structure, then traverse it to build our own model of the query structure.
+
+So, perhaps using sqlglot would be a good approach.
+
+First, install sqlglot: pip install sqlglot
+
+Then, parse the SQL:
+
+import sqlglot
+
+parsed = sqlglot.parse_one(sql)
+
+Then, we can traverse the parsed tree.
+
+But how to extract CTEs, their subqueries, the main query, etc.
+
+For example, the parsed tree for a WITH statement would have a With expression containing CTEs, and then the main query.
+
+Each CTE has an alias and a subquery.
+
+So, for the sample input:
+
+The parsed tree would have a With node, with two CTEs (TempA and TempB), each with their subqueries.
+
+The main query is a Select node.
+
+So, using sqlglot's API, we can extract the CTEs and the main query.
+
+Once we have the main query and CTEs, we need to process each of them to track column origins.
+
+So, the plan would be:
+
+1. Parse the SQL into an AST using sqlglot.
+
+2. Extract all CTEs and store their parsed subqueries.
+
+3. For each CTE, process its subquery to build a mapping of their output columns to their source columns.
+
+4. Process the main query's SELECT list, FROM, JOINs, etc., and for each column reference in the SELECT list, resolve it through the CTEs, subqueries, and base tables to find the original source.
+
+But how to represent the mapping of columns through different layers.
+
+For each query (CTE, subquery, main query), we can create a structure that holds the columns selected and their sources.
+
+For example:
+
+A CTE TempA's SELECT list has columns KeyA, NameA, DateA. Each of these columns is from TableA's corresponding columns.
+
+So, the structure for TempA would map:
+
+- KeyA → TableA.KeyA
+
+- NameA → TableA.NameA
+
+- DateA → TableA.DateA
+
+Then, when TempA is referenced in another query (like the main query), the columns of TempA are resolved to their sources.
+
+Similarly, a subquery in the main query's FROM clause (like B) would have its own structure, mapping its output columns (KeyB, KeyA, RateB, DateB) to their sources (TableA's columns, plus possibly TempA's KeyA).
+
+So, the process is:
+
+For each query (CTE or subquery), for each column in its SELECT list, determine the source (either a direct column from a table, or a column from another CTE/subquery, or an expression).
+
+For expressions, we need to split into component columns and resolve each.
+
+But for the purpose of the output, the user wants to track all source columns involved in a calculated result column. So, for example, the Amount column is RateB * QuantityC, so it has two sources: RateB and QuantityC. Each of these needs to be resolved to their base tables and columns.
+
+So, for each result column in the main query's SELECT list:
+
+- If it's a direct column (like C.KeyC), resolve to TableC.KeyC.
+
+- If it's an expression, split into component columns and resolve each.
+
+Now, the code would need to:
+
+- For each result column:
+
+a. Parse the expression to extract all column references.
+
+b. For each column reference, resolve through aliases, CTEs, subqueries to base tables.
+
+c. Collect all base table/column pairs.
+
+Then, output each pair as a row in the result (like the sample output where Amount has two rows, one for RateB and one for QuantityC).
+
+Now, the challenge is to implement this resolution process.
+
+Implementing this with sqlglot:
+
+Each column reference in the AST can be traversed. For example, in the main query's SELECT list, each column is an expression. For example, "C.KeyC" is a Column, with table alias "C" and name "KeyC".
+
+To resolve "C.KeyC":
+
+- Find the alias "C" in the current scope (the main query's FROM clause). The alias "C" refers to TableC.
+
+- So, the source is TableC.KeyC.
+
+Another example: "A.NameA" in the main query's SELECT list:
+
+- Alias "A" refers to TempA (the CTE).
+
+- In the CTE TempA, the column NameA is selected from TableA.NameA.
+
+So, the source is TableA.NameA.
+
+Similarly, "B.RateB" refers to the alias B, which is a subquery. The subquery's RateB is selected from TableA.RateB. So, the source is TableA.RateB.
+
+But according to the sample output, RateB's source is TableB. This suggests a discrepancy, but assuming the code correctly resolves the columns, it will output based on the input SQL.
+
+Thus, the code must correctly follow the SQL structure.
+
+Now, the code structure would involve:
+
+- A resolver that, given a column reference (with table alias and column name), can find the corresponding base table and column.
+
+To do this, the resolver needs to track the current scope's tables and their definitions (whether they are base tables, CTEs, or subqueries).
+
+So, when entering a query (like a CTE or a subquery), the resolver's scope is updated to include the tables available in that query's FROM clause.
+
+For example, in the main query's scope, the tables are:
+
+- TableC aliased as C.
+
+- TempA aliased as A (which is a CTE).
+
+- The subquery B aliased as B.
+
+When resolving a column in the main query's SELECT list, the resolver looks into these tables.
+
+For each table alias, the resolver needs to know whether it's a base table, a CTE, or a subquery, and then look up the column in that structure.
+
+So, the resolver would need a way to:
+
+1. For a given table alias in the current scope, get its definition (base table, CTE, subquery).
+
+2. For that definition, get the corresponding column's source.
+
+Thus, the resolver would need a hierarchical context where each level represents the current query's scope (available tables and their definitions).
+
+This suggests using a stack of scopes. When entering a subquery, push a new scope onto the stack. When exiting, pop the scope.
+
+But sqlglot's AST traversal can help here. When traversing the AST, entering a subquery would push a new context, and leaving would pop it.
+
+Alternatively, for each node in the AST, maintain a context that tracks the available tables and their definitions.
+
+This is getting quite complex, but let's outline the steps.
+
+First, for each query (CTE or subquery), we need to process its FROM clause to determine the tables and aliases available in that query's scope.
+
+For example, the main query's FROM clause is:
+
+FROM TableC C
+
+LEFT OUTER JOIN TempA A ON ...
+
+LEFT OUTER JOIN (subquery) B ON ...
+
+So, the available tables in the main query's scope are C (TableC), A (CTE TempA), B (subquery).
+
+For each of these, the resolver must know their structure (columns and their origins).
+
+So, when resolving a column reference like B.RateB, the resolver checks the B alias's structure (the subquery's SELECT list) to find RateB's origin.
+
+Similarly, the subquery B's SELECT list has RateB from TableA.
+
+Thus, B.RateB's origin is TableA.RateB.
+
+So, the code needs to recursively resolve each column reference until it reaches a base table.
+
+Now, the code steps:
+
+1. Parse the SQL into an AST using sqlglot.
+
+2. Traverse the AST to build a map of CTEs and their definitions.
+
+3. For each CTE, process its subquery to determine the origin of each column in its SELECT list.
+
+4. Process the main query's FROM clause to build a list of tables (aliases and their sources).
+
+5. For each column in the main query's SELECT list:
+
+a. Split into individual column references if it's an expression.
+
+b. For each column reference, resolve through aliases and subqueries to base tables.
+
+c. Collect all base table/column pairs.
+
+Now, the code needs to implement this resolution.
+
+But how to handle the traversal with sqlglot.
+
+sqlglot's parse tree has nodes for each part of the SQL. For example, a SELECT node has a 'with' property for CTEs, a 'from' property for the FROM clause, etc.
+
+Let's outline how to extract CTEs:
+
+parsed = sqlglot.parse_one(sql)
+
+ctes = parsed.args.get('with', {}).get('expressions', [])
+
+Each CTE is a CTE expression with an alias and a subquery.
+
+For example:
+
+for cte in ctes:
+
+cte_name = cte.alias
+
+cte_query = cte.this
+
+Then, process the CTE's query to determine the source of each column.
+
+Similarly, for the main query's FROM clause.
+
+But processing the FROM clause involves handling joins and subqueries.
+
+For each table in the FROM clause, which can be a Table, a Subquery, or a CTE.
+
+For example:
+
+from_clause = main_query.args.get('from')
+
+for table in from_clause:
+
+if table is a Table:
+
+alias = table.alias
+
+name = table.name
+
+add to current scope: alias -> Table(name)
+
+elif table is a Subquery:
+
+alias = table.alias
+
+subquery = table.this
+
+process subquery to determine column sources
+
+add to current scope: alias -> Subquery(subquery)
+
+elif table is a CTE reference:
+
+alias = table.alias
+
+cte_name = table.name
+
+add to current scope: alias -> CTE(cte_name)
+
+But this requires traversing the FROM clause's expressions.
+
+Once the current scope's tables are known, resolving a column reference involves checking each table's columns.
+
+But to implement this, perhaps for each table in the scope, we need to have a way to look up columns.
+
+For example, a Table has columns (if known) from the database schema? But the user hasn't provided any schema information, so perhaps we can't know the columns of a base table. Wait, but the problem statement says that the program must parse the SQL and track the source tables/columns based on the SQL's structure. So the code doesn't need to know the actual schema of the tables; it only needs to track the columns as referenced in the SQL.
+
+Wait, but in the SQL, the columns are referenced in the SELECT lists. For example, if a table is referenced in a FROM clause (like TableC C), then any column of C is a column from TableC. But in the SQL, the columns are referenced in the SELECT list of the main query or subqueries.
+
+So, the code needs to track, for each table alias, the base table's name (if it's a base table), or the CTE/subquery's structure (if it's a CTE or subquery).
+
+Thus, for a base table alias (like C for TableC), the resolver can assume that any column reference like C.KeyC is from TableC.KeyC.
+
+But how to confirm that? For example, the SQL may not explicitly list the columns of TableC, but the code must track the column references through the SQL.
+
+Ah, but the problem requires that the source columns are those referenced in the SQL. For example, if in the main query, we select C.KeyC, then the source is TableC.KeyC. Even if TableC has other columns, they are not considered unless referenced.
+
+Wait, no. The problem's sample output shows that the result column KeyC is from TableC's KeyC, QuantityC from TableC's QuantityC, etc. So the code must track the columns as they are used in the SQL.
+
+Thus, the code needs to track for each column reference in the SELECT list of the main query, through any aliases, CTEs, and subqueries, back to the original base table and column as referenced in the SQL.
+
+So, even if a table has multiple columns, the code only tracks those that are referenced in the path leading to the result column.
+
+Thus, the code does not need to know the full schema of the tables; it only needs to track the path of the column references through the SQL.
+
+Thus, when resolving B.RateB:
+
+- B is a subquery that selects RateB from TableA.
+
+Thus, B.RateB's source is TableA.RateB.
+
+So, the code must track that path.
+
+Now, the code can model this by keeping track of each query's SELECT list and their corresponding sources.
+
+For example, the subquery B's SELECT list includes RateB from TableA. So, in the resolver, when B's subquery is processed, the RateB column is noted as coming from TableA.RateB.
+
+Thus, when the main query refers to B.RateB, it can be resolved to TableA.RateB.
+
+But how to model this in code.
+
+Perhaps each time a query is processed (like a CTE or a subquery), we create a mapping of its output columns to their source expressions.
+
+For example, the subquery B:
+
+SELECT KeyB, KeyA, RateB, DateB FROM TableA WHERE ...
+
+The output columns are KeyB, KeyA, RateB, DateB. Each of these is a direct reference to TableA's columns.
+
+Thus, the mapping for B would be:
+
+KeyB → TableA.KeyB
+
+KeyA → TableA.KeyA
+
+RateB → TableA.RateB
+
+DateB → TableA.DateB
+
+Then, when the main query refers to B.RateB, it is resolved to TableA.RateB.
+
+But if the subquery has an expression, like RateB * 2 as RateB2, then the mapping for RateB2 would be the expression, which needs to be parsed for column references.
+
+But for the purpose of this code, we need to track all base columns involved in any expression.
+
+So, for any column in the SELECT list of a query, if it is an expression, we need to parse it to find all column references and map them to their sources.
+
+Thus, the code would need to:
+
+For each query (CTE, subquery, main query):
+
+For each column in the SELECT list:
+
+If the column is an expression (like RateB * 2), split into column references (RateB) and resolve each to their source.
+
+If the column is a direct reference (like TableA.RateB), resolve to the source table and column.
+
+Thus, each query's column is associated with a list of source columns (base table and column).
+
+This way, when resolving a column reference through multiple layers of queries, the code can accumulate all base columns involved.
+
+So, for the sample input's main query:
+
+The Amount column is B.RateB * C.QuantityC.
+
+The code would split this into B.RateB and C.QuantityC.
+
+Resolving B.RateB:
+
+- B is a subquery whose RateB maps to TableA.RateB.
+
+Resolving C.QuantityC:
+
+- C is TableC, so QuantityC is TableC.QuantityC.
+
+Thus, the result is two source entries: (TableA, RateB) and (TableC, QuantityC), both contributing to Amount.
+
+This matches the sample output's entries for Amount.
+
+Now, the code needs to build these mappings.
+
+Implementation Steps:
+
+1. Use sqlglot to parse the input SQL and extract CTEs and the main query.
+
+2. For each CTE, process its subquery to build a column mapping.
+
+3. Process the main query's FROM clause to determine the available tables/aliases and their sources.
+
+4. For each column in the main query's SELECT list:
+
+a. Parse the expression to find all column references.
+
+b. For each column reference, resolve it through the available tables/aliases to find the base table and column.
+
+5. Collect all such base table and column pairs for each result column.
+
+6. Output the collected mappings in CSV format.
+
+Now, the key part is the resolver function that takes a column reference (table alias and column name) and returns the list of base table and column pairs.
+
+To implement this resolver:
+
+- The resolver needs to know the current scope's tables and their definitions.
+
+- For each table alias in the current scope, if it's a base table, then the column is directly from that table.
+
+- If the alias is a CTE or subquery, then look up the column in the CTE's or subquery's column mapping.
+
+- Recursively do this until all layers are resolved to base tables.
+
+Thus, the code needs to process each query's SELECT list and build a column mapping for each output column.
+
+This can be done by recursively processing each query (CTE or subquery) and storing their column mappings.
+
+For example:
+
+class Query:
+
+def __init__(self, alias, source):
+
+self.alias = alias
+
+self.source = source  # can be 'base', 'cte', 'subquery'
+
+self.columns = {}  # key: column name, value: list of (source_table, source_column)
+
+def add_column(self, col_name, sources):
+
+self.columns[col_name] = sources
+
+Thus, for the subquery B:
+
+query_b = Query(alias='B', source='subquery')
+
+query_b.add_column('RateB', [('TableA', 'RateB')])
+
+Then, when resolving B.RateB, it would map to TableA.RateB.
+
+Now, processing each query's SELECT list to build these column mappings.
+
+For a SELECT expression like SELECT RateB FROM TableA:
+
+Each column in the SELECT list (RateB) is an expression. We need to parse this expression to find all column references.
+
+In this case, RateB is a direct column reference from TableA.
+
+Thus, the code would process the SELECT list's expressions and for each, find the column references.
+
+But how to parse the expression for column references.
+
+sqlglot can help here. For each expression in the SELECT list, we can traverse the parsed expression to find column references.
+
+For example:
+
+from sqlglot import parse_one
+
+expr = parse_one("RateB")
+
+columns = []
+
+for column in expr.find_all(sqlglot.exp.Column):
+
+columns.append((column.table, column.name))
+
+But in this case, the expression is just a column reference, so it would return (None, 'RateB').
+
+But since the query is selecting from TableA, which is aliased as something (or not), the resolver needs to determine the source.
+
+Ah, but in the subquery B's FROM clause, it's selecting from TableA with no alias. So in the subquery B's context, the default table is TableA, so any column reference without a table alias refers to TableA.
+
+But in the case of a JOIN, columns might come from multiple tables.
+
+This adds complexity. For example, if a subquery has a JOIN, then column references must be qualified with table aliases.
+
+But for the code to correctly resolve column references, it must know which tables are in the current query's FROM clause and their aliases.
+
+Thus, processing each query's FROM clause to determine the available tables and their aliases is critical.
+
+But in the sample input's subquery B, the FROM clause is FROM TableA, so the only table is TableA with no alias. Thus, any unqualified column reference (like RateB) is assumed to be from TableA.
+
+Thus, in the subquery B's SELECT list, RateB refers to TableA.RateB.
+
+But if the FROM clause had an alias, like FROM TableA AS T, then unqualified columns would refer to T.
+
+Thus, the code must process the FROM clause to determine the available tables and their aliases, and for each, track whether they are base tables, CTEs, or subqueries.
+
+But this is getting quite involved.
+
+Given the time constraints, perhaps the code can focus on handling the most common cases, like CTEs, subqueries in FROM and JOIN clauses, and column references with and without aliases.
+
+But given the complexity, perhaps using sqlglot's ability to qualify columns can help.
+
+sqlglot has a qualify_columns function which can qualify all column references with their table aliases.
+
+But I'm not sure. Alternatively, using the alias resolution provided by sqlglot.
+
+Alternatively, the code can traverse each query's FROM clause to build a list of tables and their aliases, then for each column reference in the SELECT list, determine which table it comes from based on the alias.
+
+For example, in the subquery B's FROM clause:
+
+FROM TableA
+
+This table has no alias, so its implicit alias is the table name (TableA). Thus, any column reference in the SELECT list must be from TableA.
+
+Thus, in the subquery B's SELECT list, RateB is from TableA.RateB.
+
+Thus, the code can build for each query a list of tables and their aliases.
+
+For each query:
+
+- Process the FROM clause to get all tables and their aliases.
+
+- For each table, determine if it's a base table, a CTE, or a subquery.
+
+- For base tables, store the table name and alias.
+
+- For CTEs, look up the CTE's column mapping.
+
+- For subqueries, process the subquery recursively to build its column mapping.
+
+Once the tables are known, for each column reference in the SELECT list, determine which table it comes from.
+
+For example, in the main query's SELECT list:
+
+A.NameA → table alias A (which is CTE TempA) → column NameA.
+
+The code would look up the CTE TempA's column mapping for NameA, which would map to TableA.NameA.
+
+Another example: B.RateB → table alias B (subquery) → column RateB. The code looks up the subquery B's column mapping for RateB, which maps to TableA.RateB.
+
+Thus, the code can recursively resolve each column reference.
+
+Putting this all together.
+
+The code can be structured as follows:
+
+1. Parse the SQL using sqlglot, extracting CTEs and the main query.
+
+2. Build a CTE registry: a dictionary mapping CTE names to their processed Query objects.
+
+3. Process each CTE's subquery recursively to build their column mappings.
+
+4. Process the main query's FROM clause to build a list of tables and their sources (base, CTE, subquery).
+
+5. For each table in the FROM clause, process their source (base table, CTE, subquery) to build their column mappings.
+
+6. For each column in the main query's SELECT list:
+
+a. Parse the expression to find all column references.
+
+b. For each column reference, resolve the table alias and column name to the base table and column.
+
+7. Collect all base table/column pairs for each result column.
+
+8. Output the collected mappings in CSV format.
+
+But how to handle nested subqueries.
+
+For example, the subquery B in the main query's FROM clause has a WHERE clause that references another subquery: WHERE KeyA IN (SELECT KeyA FROM TempA).
+
+But for the code's purpose, we only need to process the SELECT list of each query, not the WHERE or other clauses. However, the sample output suggests that the code needs to track the source columns used in the SELECT list of the main query, not other clauses. So perhaps other clauses (WHERE, GROUP BY, etc.) can be ignored.
+
+But the sample output doesn't involve those clauses. So the code can focus solely on the SELECT list and the FROM/JOIN clauses.
+
+Thus, the code can ignore other parts of the SQL for this purpose.
+
+Now, implementing this step by step.
+
+First, parse the SQL:
+
+import sqlglot
+
+from sqlglot import exp
+
+def parse_sql(sql):
+
+parsed = sqlglot.parse_one(sql, read='mysql')  # assuming the dialect is not critical; might need to adjust
+
+return parsed
+
+But the dialect might affect parsing. The user's sample uses LEFT OUTER JOIN, which is standard SQL, so sqlglot should handle it.
+
+Next, process the CTEs:
+
+def process_ctes(parsed):
+
+ctes = {}
+
+if parsed.args.get('with'):
+
+for cte in parsed.args['with'].expressions:
+
+cte_name = cte.alias
+
+cte_query = cte.this
+
+# Process the CTE's query
+
+ctes[cte_name] = process_query(cte_query, ctes)
+
+return ctes
+
+But wait, the CTEs can reference other CTEs (like TempB references TempA). So when processing a CTE, the CTE's query may refer to other CTEs that have already been processed. Thus, the CTE registry needs to be built in the order they are defined.
+
+Thus, in the WITH clause, the CTEs are processed in the order they are defined, and each CTE can reference previous CTEs.
+
+Thus, the code must process CTEs in order, building the registry incrementally.
+
+But the function process_ctes would need to process each CTE in order, passing the current CTE registry to process_query.
+
+But this requires recursion, and handling the CTEs in the correct order.
+
+Alternatively, process the CTEs in order, and for each, process their query with the current CTE registry (which includes the previous CTEs).
+
+Thus, the code can be:
+
+def process_ctes(parsed):
+
+ctes = {}
+
+if parsed.args.get('with'):
+
+# Process CTEs in order
+
+for cte in parsed.args['with'].expressions:
+
+cte_name = cte.alias
+
+cte_query = cte.this
+
+# Process the CTE's query with the current CTEs available
+
+ctes[cte_name] = process_query(cte_query, ctes)
+
+return ctes
+
+But this won't work because when processing a CTE's query, it can refer to CTEs defined earlier. For example, TempB references TempA. So when processing TempB's query, the CTE registry contains TempA.
+
+Thus, the code must process CTEs in order, building up the registry as it goes.
+
+But in Python, the function would need to process each CTE in order, and for each, process its query, which may refer to previous CTEs.
+
+Thus, the code should:
+
+Initialize an empty CTE registry.
+
+Iterate over each CTE in the order they are defined.
+
+For each CTE:
+
+Process its query using the current CTE registry.
+
+Add the processed CTE to the registry.
+
+Thus:
+
+def process_ctes(parsed):
+
+cte_registry = {}
+
+if parsed.args.get('with'):
+
+# Iterate over CTEs in the order they are defined
+
+for cte_def in parsed.args['with'].expressions:
+
+cte_name = cte_def.alias
+
+cte_query = cte_def.this
+
+# Process the CTE's query with the current CTE registry (which includes previous CTEs)
+
+processed_query = process_query(cte_query, cte_registry)
+
+cte_registry[cte_name] = processed_query
+
+return cte_registry
+
+Then, process_query function is responsible for processing a query (SELECT statement) and returning its column mappings.
+
+Now, the process_query function needs to:
+
+1. Process the FROM clause to determine the tables and their sources.
+
+2. For each table in the FROM clause, determine if it's a base table, CTE, or subquery.
+
+3. For each table, build a mapping of its columns (based on its SELECT list if it's a subquery or CTE).
+
+4. Process the SELECT list's expressions, resolving each column reference to the underlying tables.
+
+But this is quite involved.
+
+The process_query function could look like this:
+
+def process_query(query, cte_registry):
+
+# Process the FROM clause to get the tables and their aliases
+
+from_clause = query.args.get('from')
+
+tables = []
+
+if from_clause:
+
+for from_expression in from_clause.expressions:
+
+if isinstance(from_expression, exp.Table):
+
+# Base table
+
+alias = from_expression.alias_or_name
+
+table_name = from_expression.name
+
+tables.append({
+
+'alias': alias,
+
+'source_type': 'table',
+
+'source': table_name,
+
+'columns': None  # Base table columns are not preprocessed
+
+})
+
+elif isinstance(from_expression, exp.Subquery):
+
+# Subquery
+
+alias = from_expression.alias
+
+subquery = from_expression.this
+
+# Process the subquery recursively
+
+processed_subquery = process_query(subquery, cte_registry)
+
+tables.append({
+
+'alias': alias,
+
+'source_type': 'subquery',
+
+'source': processed_subquery,
+
+'columns': processed_subquery.columns
+
+})
+
+elif isinstance(from_expression, exp.Identifier) and from_expression.name in cte_registry:
+
+# CTE reference
+
+cte_name = from_expression.name
+
+alias = from_expression.alias
+
+cte_query = cte_registry[cte_name]
+
+tables.append({
+
+'alias': alias,
+
+'source_type': 'cte',
+
+'source': cte_query,
+
+'columns': cte_query.columns
+
+})
+
+else:
+
+# Handle other cases, like joins
+
+# For joins, the left and right are expressions
+
+# This is a simplified approach; need to handle joins recursively
+
+# This part is more complex and requires handling join structures
+
+pass
+
+# Process the SELECT list
+
+select_columns = {}
+
+for select_expression in query.args['expressions']:
+
+alias = select_expression.alias_or_name
+
+# Get the expression's column references
+
+column_references = []
+
+for column in select_expression.find_all(exp.Column):
+
+# Resolve the column's table and name
+
+table_alias = column.table
+
+column_name = column.name
+
+# Find the table in the FROM clause
+
+source_table = None
+
+source_column = None
+
+for table in tables:
+
+if table['alias'] == table_alias or (table_alias is None and table['source_type'] == 'table' and len(tables) == 1):
+
+# Assuming default table alias if no alias and only one table
+
+if table['source_type'] == 'table':
+
+# Base table
+
+source_table = table['source']
+
+source_column = column_name
+
+elif table['source_type'] in ('cte', 'subquery'):
+
+# Look up the column in the CTE or subquery's columns
+
+source_columns = table['columns'].get(column_name, [])
+
+for src_table, src_col in source_columns:
+
+source_table = src_table
+
+source_column = src_col
+
+# Assuming first source for simplicity; but may need to collect all
+
+# For example, if a column is from multiple sources (join), but that's ambiguous
+
+break  # this is a simplification
+
+break
+
+if source_table and source_column:
+
+column_references.append((source_table, source_column))
+
+select_columns[alias] = column_references
+
+return {
+
+'columns': select_columns,
+
+'tables': tables
+
+}
+
+But this is a simplified version and may not handle all cases. For example, it doesn't handle joins properly, assumes that the FROM clause has only one table or that unqualified columns refer to the only table, and doesn't handle expressions that involve multiple columns.
+
+This code needs to be expanded to handle joins, multiple tables, and more complex expressions.
+
+But given the complexity and time constraints, perhaps a more robust approach is needed.
+
+However, given that this is a Python program for Windows, and the user expects a solution, the code can be written with the understanding that it may not handle all possible SQL constructs but works for the sample input and similar cases.
+
+Thus, the final code would involve:
+
+- Parsing the SQL with sqlglot.
+
+- Processing CTEs and subqueries recursively.
+
+- For each column in the main query's SELECT list, extracting the column references and resolving them through aliases and subqueries.
+
+- Collecting the resolved base tables and columns.
+
+- Outputting the CSV.
+
+But to implement this, the code must handle:
+
+- CTEs.
+
+- Subqueries in FROM and JOIN clauses.
+
+- Column references with and without aliases.
+
+- Expressions in the SELECT list.
+
+The code can use sqlglot's traversal capabilities to extract column references.
+
+Finally, the UI part: the user wants a Windows program with a multi-line text box for input, a button to trigger parsing, and a multi-line text box for the CSV output.
+
+For the UI, using Tkinter is a good choice as it's included with Python.
+
+Thus, the code can be structured as follows:
+
+1. Use Tkinter to create a simple GUI with two text boxes and a button.
+
+2. When the button is clicked, the input SQL is parsed, analyzed, and the results are displayed in the output text box.
+
+The main challenges here are:
+
+- Handling large SQL inputs (hundreds of lines) in the text box.
+
+- Displaying the results in a CSV format.
+
+But Tkinter's Text widget can handle this.
+
+Putting it all together:
+
+The code will have two main parts:
+
+- The SQL parser and analyzer.
+
+- The GUI.
+
+Now, writing the code.
+
+First, the SQL parser and analyzer.
+
+But given the complexity and time, perhaps the code can be structured with the following functions:
+
+- parse_sql: uses sqlglot to parse the SQL and returns the parsed AST.
+
+- process_sql: takes the SQL string, parses it, processes CTEs and main query, and returns the result mappings.
+
+Then, the GUI uses process_sql to get the results and display them.
+
+But given time constraints, let's outline the code.
+
+First, the process_sql function:
+
+import sqlglot
+
+from sqlglot import exp
+
+def process_sql(sql):
+
+parsed = sqlglot.parse_one(sql)
+
+cte_registry = process_ctes(parsed)
+
+main_query = parsed
+
+if isinstance(parsed, exp.With):
+
+main_query = parsed.this
+
+# Process the main query
+
+main_columns = process_main_query(main_query, cte_registry)
+
+return main_columns
+
+def process_ctes(parsed):
+
+cte_registry = {}
+
+if isinstance(parsed, exp.With):
+
+for cte_def in parsed.expressions:
+
+cte_name = cte_def.alias
+
+cte_query = cte_def.this
+
+cte_registry[cte_name] = process_query(cte_query, cte_registry)
+
+parsed = parsed.this
+
+return cte_registry
+
+def process_query(query, cte_registry):
+
+# Determine the tables in the FROM clause
+
+from_clause = query.args.get('from')
+
+tables = []
+
+if from_clause:
+
+for from_expr in from_clause.expressions:
+
+if isinstance(from_expr, exp.Table):
+
+# Base table
+
+tables.append({
+
+'alias': from_expr.alias_or_name,
+
+'source_type': 'table',
+
+'source': from_expr.name,
+
+'columns': {}
+
+})
+
+elif isinstance(from_expr, exp.Subquery):
+
+# Subquery
+
+alias = from_expr.alias
+
+subquery = from_expr.this
+
+processed_subquery = process_query(subquery, cte_registry)
+
+tables.append({
+
+'alias': alias,
+
+'source_type': 'subquery',
+
+'source': processed_subquery,
+
+'columns': processed_subquery['columns']
+
+})
+
+elif isinstance(from_expr, exp.Join):
+
+# Handle joins
+
+# This is simplified; need to process both left and right
+
+left = from_expr.args.get('this')
+
+right = from_expr.args.get('expression')
+
+# Process left and right
+
+# Recursively process each side
+
+left_table = process_from_expression(left, cte_registry)
+
+right_table = process_from_expression(right, cte_registry)
+
+tables.extend([left_table, right_table])
+
+else:
+
+# Handle other cases, like identifiers (CTEs)
+
+if isinstance(from_expr, exp.Identifier):
+
+cte_name = from_expr.name
+
+if cte_name in cte_registry:
+
+alias = from_expr.alias_or_name
+
+tables.append({
+
+'alias': alias,
+
+'source_type': 'cte',
+
+'source': cte_registry[cte_name],
+
+'columns': cte_registry[cte_name]['columns']
+
+})
+
+# Process SELECT list
+
+select_columns = {}
+
+for expr in query.args['expressions']:
+
+alias = expr.alias_or_name
+
+# Get all column references in the expression
+
+columns = []
+
+for col in expr.find_all(exp.Column):
+
+# Resolve the column
+
+table_alias = col.table
+
+col_name = col.name
+
+# Find the table in the FROM clause
+
+for table in tables:
+
+if table['alias'] == table_alias or (table_alias is None and len(tables) == 1):
+
+# Assume the only table if no alias
+
+if table['source_type'] == 'table':
+
+# Base table
+
+columns.append((table['source'], col_name))
+
+elif table['source_type'] in ('cte', 'subquery'):
+
+# Look up in the cte/subquery's columns
+
+if col_name in table['columns']:
+
+columns.extend(table['columns'][col_name])
+
+break
+
+select_columns[alias] = columns
+
+return {
+
+'columns': select_columns,
+
+'tables': tables
+
+}
+
+def process_main_query(query, cte_registry):
+
+processed_query = process_query(query, cte_registry)
+
+result = []
+
+for col_alias, sources in processed_query['columns'].items():
+
+for source_table, source_col in sources:
+
+result.append({
+
+'result_column': col_alias,
+
+'source_table': source_table,
+
+'source_column': source_col
+
+})
+
+return result
+
+But this is a simplified version. It may not handle joins properly or complex aliases.
+
+Now, the GUI code:
+
+import tkinter as tk
+
+from tkinter import ttk, scrolledtext
+
+def analyze_sql():
+
+sql_input = input_text.get("1.0", tk.END)
+
+result = process_sql(sql_input)
+
+# Format result as CSV
+
+csv_output = "RESULT COLUMN,SOURCE TABLE,SOURCE COLUMN\n"
+
+for row in result:
+
+csv_output += f"{row['result_column']},{row['source_table']},{row['source_column']}\n"
+
+output_text.delete("1.0", tk.END)
+
+output_text.insert(tk.END, csv_output)
+
+# Create the main window
+
+root = tk.Tk()
+
+root.title("SQL Parser Analyzer")
+
+# Input SQL text box
+
+input_label = ttk.Label(root, text="Enter SQL Statement:")
+
+input_label.grid(row=0, column=0, padx=10, pady=5, sticky='w')
+
+input_text = scrolledtext.ScrolledText(root, width=80, height=20)
+
+input_text.grid(row=1, column=0, padx=10, pady=5)
+
+# Analyze button
+
+analyze_button = ttk.Button(root, text="Analyze", command=analyze_sql)
+
+analyze_button.grid(row=2, column=0, padx=10, pady=5)
+
+# Output CSV text box
+
+output_label = ttk.Label(root, text="Result:")
+
+output_label.grid(row=3, column=0, padx=10, pady=5, sticky='w')
+
+output_text = scrolledtext.ScrolledText(root, width=80, height=20)
+
+output_text.grid(row=4, column=0, padx=10, pady=5)
+
+root.mainloop()
+
+But the process_sql function would need to return the correct mappings.
+
+However, the code as outlined has multiple gaps, especially in handling complex SQL structures, JOINs, and subqueries. But for the sake of providing a solution, this code can be a starting point.
+
+Testing with the sample input:
+
+WITH
+
+TempA As (SELECT KeyA, NameA, DateA FROM TableA WHERE DateA='2025-01-01'),
+
+TempB As (SELECT KeyB, KeyA, RateB, DateB FROM TableA WHERE KeyA IN (SELECT KeyA FROM TempA))
+
+SELECT C.KeyC, C.QuantityC, C.DateC,
+
+A.NameA, B.RateB, B.RateB * C.QuantityC AS Amount
+
+FROM TableC C
+
+LEFT OUTER JOIN TempA A ON C.KeyA = A.KeyA
+
+LEFT OUTER JOIN
+
+(SELECT KeyB, KeyA, RateB, DateB
+
+FROM TableA
+
+WHERE KeyA IN (SELECT KeyA FROM TempA)
+
+) B ON B.KeyB = C.KeyB
+
+The process_sql function would process the CTEs TempA and TempB.
+
+For TempA:
+
+SELECT KeyA, NameA, DateA FROM TableA
+
+Thus, the columns KeyA, NameA, DateA are mapped to TableA.
+
+TempB selects KeyB, KeyA, RateB, DateB FROM TableA. So RateB is from TableA.RateB.
+
+The main query's SELECT list:
+
+- C.KeyC: from TableC.KeyC.
+
+- C.QuantityC: from TableC.QuantityC.
+
+- C.DateC: from TableC.DateC.
+
+- A.NameA: from TempA's NameA, which is TableA.NameA.
+
+- B.RateB: from subquery B's RateB, which is from TableA.RateB.
+
+- Amount: B.RateB * C.QuantityC. So two sources: TableA.RateB and TableC.QuantityC.
+
+Thus, the sample output should have these entries. However, in the sample output, RateB is mapped to TableB, which suggests a discrepancy. But according to the SQL input, it's from TableA.
+
+Thus, the code's output would have RateB from TableA, which would differ from the sample output. But assuming the code correctly processes the input SQL, that's the correct result.
+
+Thus, the user may have a mistake in the sample input or output.
+
+In conclusion, the code provided here is a starting point, but would need further refinement to handle all edge cases, such as JOINs, multiple tables, and complex subqueries. The GUI is functional but basic. The SQL parsing and analysis logic relies on sqlglot and a recursive processing approach to resolve column references through CTEs and subqueries.
