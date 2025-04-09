@@ -9,6 +9,10 @@ def process_sql(sql):
     except Exception as e:
         return [{'result_column': 'Error', 'source_table': 'Error', 'source_column': str(e)}]
 
+cte = parsed.find_all(exp.Ctes) 
+joins = parsed.find_all(exp.Join)
+sub query = parsed.find_all(exp.Subquery)
+
     cte_registry = {}
     if isinstance(parsed, exp.With):
         cte_registry = process_ctes(parsed)
