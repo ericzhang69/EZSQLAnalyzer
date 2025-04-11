@@ -5,20 +5,26 @@ from tkinter import ttk, scrolledtext
 
 def process_sql(sql):
     try:
-        parsed = sqlglot.parse_one(sql, read="snowflake")
+        main_query = sqlglot.parse_one(sql, read="snowflake")
     except Exception as e:
         return [{'result_column': 'Error', 'source_table': 'Error', 'source_column': str(e)}]
 
+    # ctes = parsed.find_all(exp.CTE)
+    # joins = parsed.find_all(exp.Join)
+    # subqueris = parsed.find_all(exp.Subquery)
+
     cte_registry = {}
-    if isinstance(parsed, exp.With):
-        cte_registry = process_ctes(parsed)
-        main_query = parsed.this
-    else:
-        main_query = parsed
+    if main_query.ctes:
+        cte_registry = process_ctes(main_query)
+    # if isinstance(parsed, exp.With):
+    #     cte_registry = process_ctes(parsed)
+    #     main_query = parsed.this
+    # else:
+    #     main_query = parsed
 
     result = []
     try:
-        main_columns = process_query(main_query, cte_registry)
+        main_columns = process_query('*MAIN', main_query, cte_registry)
         for col_alias, sources in main_columns['columns'].items():
             for source_table, source_col in sources:
                 result.append({
@@ -31,19 +37,20 @@ def process_sql(sql):
     
     return result
 
-def process_ctes(parsed_with):
+#------------ Working Process CTEs------
+def process_ctes(parsed_ctes):
     cte_registry = {}
-    for cte in parsed_with.expressions:
+    for cte in parsed_ctes.find_all(exp.CTE):
         cte_name = cte.alias
         cte_query = cte.this
-        processed_cte = process_query(cte_query, cte_registry)
+        processed_cte = process_query(cte.alias, cte_query, cte_registry)
         cte_registry[cte_name] = {
             'columns': processed_cte['columns'],
             'tables': processed_cte['tables']
         }
     return cte_registry
 
-def process_query(query, cte_registry):
+def process_query(query_alias, query, cte_registry):
     tables = []
     
     # Process FROM clause recursively
@@ -56,9 +63,7 @@ def process_query(query, cte_registry):
             if from_clause.this:
                 from_expressions.append(from_clause.this)
             
-            # Handle JOIN expressions
-            from_expressions.extend(from_clause.expressions)
-
+ 
             for expr in from_expressions:
                 processed = process_from_expression(expr, cte_registry)
                 if processed:
@@ -66,6 +71,12 @@ def process_query(query, cte_registry):
                         tables.extend(processed)
                     else:
                         tables.append(processed)
+
+    # Handle JOIN expressions
+    # from_expressions.extend(from_clause.expressions)
+    join_clause = query.args.get("joins")
+    if join_clause:
+        process_join(join_clause, cte_registry)   
 
     # Process SELECT expressions with deep analysis
     select_columns = {}
