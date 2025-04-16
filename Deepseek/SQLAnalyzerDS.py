@@ -180,6 +180,7 @@ def trace_column_source(query_alias, column, tables, cte_registry, visited=None)
                 or current_source == target_alias \
                 or target_alias == '' and query_alias == table['query_alias']:
                 sources.append((table['source'], col_name))
+        # this section
         elif table['source_type'] in ('subquery'):
           #  if (table['source'], col_name) in visited:
             # if (table['source'], col_name) in visited:
