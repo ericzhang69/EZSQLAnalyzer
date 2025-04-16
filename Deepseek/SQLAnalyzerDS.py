@@ -158,7 +158,7 @@ def process_cte_reference(ident_expr, cte_registry):
         'source': cte,
         'columns': cte['columns']
     }
-
+## Work On This for Subquery and CTE
 def trace_column_source(query_alias, column, tables, cte_registry, visited=None):
     visited = visited or set()
 
