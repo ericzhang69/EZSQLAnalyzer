@@ -26,9 +26,9 @@ def process_sql(sql):
     try:
         main_columns = process_query(query_alias := '*MAIN', main_query, cte_registry)
         for col_alias, sources in main_columns['columns'].items():
-            for source_table, source_col in sources:
+            for query_alias, source_table, source_col in sources:
                 result.append({
-                 #   'result_alias': 
+                    'result_query': query_alias,
                     'result_column': col_alias.strip(),
                     'source_table': source_table,
                     'source_column': source_col
@@ -179,31 +179,32 @@ def trace_column_source(query_alias, column, tables, cte_registry, visited=None)
             if     current_alias == target_alias \
                 or current_source == target_alias \
                 or target_alias == '' and query_alias == table['query_alias']:
-                sources.append((table['source'], col_name))
-        elif table['source_type'] in ('subquery'):
-          #  if (table['source'], col_name) in visited:
-            # if (table['source'], col_name) in visited:
-            #     continue
-            # visited.add((table['source'], col_name))
+                sources.append((query_alias, table['source'], col_name))
+
+        # elif table['source_type'] in ('subquery'):
+        #   #  if (table['source'], col_name) in visited:
+        #     # if (table['source'], col_name) in visited:
+        #     #     continue
+        #     # visited.add((table['source'], col_name))
             
-            # Recursive resolution for CTEs/subqueries
-            if col_name in table['source']['columns']:
-                for src_table, src_col in table['source']['columns'][col_name]:
-                    if src_table == 'Error':
-                        continue
-                    # Trace through nested structures
-                    sources.extend(
-                        trace_column_source(
-                            exp.Column(**{'this': src_col, 'table': None}),
-                            table['source']['tables'],
-                            cte_registry,
-                            visited
-                        )
-                    )
+        #     # Recursive resolution for CTEs/subqueries
+        #     if col_name in table['source']['columns']:
+        #         for src_table, src_col in table['source']['columns'][col_name]:
+        #             if src_table == 'Error':
+        #                 continue
+        #             # Trace through nested structures
+        #             sources.extend(
+        #                 trace_column_source(
+        #                     exp.Column(**{'this': src_col, 'table': None}),
+        #                     table['source']['tables'],
+        #                     cte_registry,
+        #                     visited
+        #                 )
+        #             )
         elif table['source_type'] == 'cte':
-            cte = cte_registry.get(table['source']['source'], {})
-            if col_name in cte.get('columns', {}):
-                sources.extend(cte['columns'][col_name])
+             cte = cte_registry.get(table['source']['source'], {})
+             if col_name in cte.get('columns', {}):
+                 sources.extend(cte['columns'][col_name])
 
     return sources
 
@@ -222,7 +223,7 @@ def analyze_sql():
     result = process_sql(sql_input)
     csv_output = "RESULT COLUMN,SOURCE TABLE,SOURCE COLUMN\n"
     for row in result:
-        csv_output += f"{row['result_column']},{row['source_table']},{row['source_column']}\n"
+        csv_output += f"{row['result_query']},{row['result_column']},{row['source_table']},{row['source_column']}\n"
     output_text.delete("1.0", tk.END)
     output_text.insert(tk.END, csv_output)
 
